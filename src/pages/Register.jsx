@@ -3,6 +3,9 @@ import { useState } from "react";
 import axios from "axios";
 import { useNavigate, Link } from "react-router-dom";
 
+// This checks for the Environment Variable, or defaults to localhost
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
+
 function Register() {
   const navigate = useNavigate();
   const [name, setName] = useState("");
@@ -20,7 +23,8 @@ function Register() {
       formData.append("password", password);
       if (avatar) formData.append("avatar", avatar);
 
-      await axios.post("http://localhost:5000/register", formData);
+      // Logic unchanged: now using the dynamic BACKEND_URL variable
+      await axios.post(`${BACKEND_URL}/register`, formData);
       navigate("/login");
     } catch (err) {
       setMsg(err.response?.data?.msg || "Register failed");

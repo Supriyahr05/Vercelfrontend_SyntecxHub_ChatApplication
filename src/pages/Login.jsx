@@ -3,6 +3,9 @@ import { useState } from "react";
 import axios from "axios";
 import { useNavigate, Link } from "react-router-dom";
 
+// This checks for the Environment Variable, or defaults to localhost
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
+
 function Login({ setUser }) {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -12,7 +15,8 @@ function Login({ setUser }) {
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      const res = await axios.post("http://localhost:5000/login", { email, password });
+      // Logic unchanged: now using the dynamic BACKEND_URL variable
+      const res = await axios.post(`${BACKEND_URL}/login`, { email, password });
       localStorage.setItem("chatUser", JSON.stringify(res.data));
       setUser(res.data);
       navigate("/chat");

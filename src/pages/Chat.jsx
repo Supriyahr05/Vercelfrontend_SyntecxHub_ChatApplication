@@ -3,12 +3,14 @@ import { useEffect, useState, useRef } from "react";
 import io from "socket.io-client";
 import axios from "axios";
 
-const socket = io("http://localhost:5000");
+// 1. Dynamic URL Setup
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
+const socket = io(BACKEND_URL);
 
 function Chat({ user, setUser }) {
   const [users, setUsers] = useState([]);
   const [rooms, setRooms] = useState([]);
-  const [currentChat, setCurrentChat] = useState(null); // {type: 'private'|'room', id, name}
+  const [currentChat, setCurrentChat] = useState(null); 
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
   const [file, setFile] = useState(null);
@@ -21,12 +23,14 @@ function Chat({ user, setUser }) {
   }, []);
 
   const loadUsers = async () => {
-    const res = await axios.get("http://localhost:5000/users");
+    // UPDATED URL
+    const res = await axios.get(`${BACKEND_URL}/users`);
     setUsers(res.data.filter(u => u.email !== user.email));
   };
 
   const loadRooms = async () => {
-    const res = await axios.get("http://localhost:5000/rooms");
+    // UPDATED URL
+    const res = await axios.get(`${BACKEND_URL}/rooms`);
     setRooms(res.data);
   };
 
@@ -36,73 +40,64 @@ function Chat({ user, setUser }) {
   }, [messages]);
 
   // Socket listeners
-// src/Chat.jsx
+  useEffect(() => {
+    if (!user || !user.email) return;
 
-useEffect(() => {
-  // 1. SAFETY CHECK: If user is not logged in yet, don't start listeners
-  if (!user || !user.email) return;
+    socket.on("oldPrivateMessages", msgs => setMessages(msgs));
+    socket.on("oldRoomMessages", msgs => setMessages(msgs));
 
-  // --- EXISTING FUNCTIONALITY (Old Messages) ---
-  socket.on("oldPrivateMessages", msgs => setMessages(msgs));
-  socket.on("oldRoomMessages", msgs => setMessages(msgs));
-
-  // --- EXISTING FUNCTIONALITY (Incoming Messages) ---
-  socket.on("privateMessage", msg => {
-    if (currentChat?.type === "private" && (msg.senderEmail === currentChat.id || msg.receiver === currentChat.id)) {
-      setMessages(prev => [...prev, msg]);
-    }
-  });
-
-  socket.on("roomMessage", msg => {
-    if (currentChat?.type === "room" && msg.receiver === currentChat.id) {
-      setMessages(prev => [...prev, msg]);
-    }
-  });
-
-  // --- NEW LIVE UPDATES (Users & Rooms) ---
-  socket.on("newUserRegistered", (newUser) => {
-    // 2. CHECK: Only add if user exists and it's not the current logged-in user
-    if (user && newUser.email !== user.email) {
-      setUsers((prev) => {
-        const exists = prev.find(u => u.email === newUser.email);
-        return exists ? prev : [...prev, newUser];
-      });
-    }
-  });
-
-  socket.on("newRoomCreated", (newRoom) => {
-    setRooms((prev) => {
-      const exists = prev.find(r => r.name === newRoom.name);
-      return exists ? prev : [...prev, newRoom];
+    socket.on("privateMessage", msg => {
+      if (currentChat?.type === "private" && (msg.senderEmail === currentChat.id || msg.receiver === currentChat.id)) {
+        setMessages(prev => [...prev, msg]);
+      }
     });
-  });
 
-  socket.on("requestUpdate", () => {
-    loadRooms(); 
-  });
+    socket.on("roomMessage", msg => {
+      if (currentChat?.type === "room" && msg.receiver === currentChat.id) {
+        setMessages(prev => [...prev, msg]);
+      }
+    });
 
-  socket.on("roomUpdated", ({ roomName, members }) => {
-    setRooms(prevRooms => 
-      prevRooms.map(r => 
-        r.name === roomName ? { ...r, members, joinRequests: r.joinRequests?.filter(req => !members.includes(req)) || [] } : r
-      )
-    );
-  });
+    socket.on("newUserRegistered", (newUser) => {
+      if (user && newUser.email !== user.email) {
+        setUsers((prev) => {
+          const exists = prev.find(u => u.email === newUser.email);
+          return exists ? prev : [...prev, newUser];
+        });
+      }
+    });
 
-  // --- CLEANUP ---
-  return () => {
-    socket.off("oldPrivateMessages");
-    socket.off("oldRoomMessages");
-    socket.off("privateMessage");
-    socket.off("roomMessage");
-    socket.off("newUserRegistered");
-    socket.off("newRoomCreated");
-    socket.off("requestUpdate");
-    socket.off("roomUpdated");
-  };
-}, [currentChat, user]); // Watch the whole user object for safety
+    socket.on("newRoomCreated", (newRoom) => {
+      setRooms((prev) => {
+        const exists = prev.find(r => r.name === newRoom.name);
+        return exists ? prev : [...prev, newRoom];
+      });
+    });
 
-  // --- Chat selection ---
+    socket.on("requestUpdate", () => {
+      loadRooms(); 
+    });
+
+    socket.on("roomUpdated", ({ roomName, members }) => {
+      setRooms(prevRooms => 
+        prevRooms.map(r => 
+          r.name === roomName ? { ...r, members, joinRequests: r.joinRequests?.filter(req => !members.includes(req)) || [] } : r
+        )
+      );
+    });
+
+    return () => {
+      socket.off("oldPrivateMessages");
+      socket.off("oldRoomMessages");
+      socket.off("privateMessage");
+      socket.off("roomMessage");
+      socket.off("newUserRegistered");
+      socket.off("newRoomCreated");
+      socket.off("requestUpdate");
+      socket.off("roomUpdated");
+    };
+  }, [currentChat, user]);
+
   const selectPrivateChat = (u) => {
     setCurrentChat({ type: "private", id: u.email, name: u.name });
     setMessages([]);
@@ -119,7 +114,6 @@ useEffect(() => {
     socket.emit("joinRoom", { room: r.name, email: user.email });
   };
 
-  // --- Send message ---
   const sendMessage = async () => {
     if (!text && !file) return;
 
@@ -127,7 +121,8 @@ useEffect(() => {
     if (file) {
       const fd = new FormData();
       fd.append("file", file);
-      const res = await axios.post("http://localhost:5000/upload", fd);
+      // UPDATED URL
+      const res = await axios.post(`${BACKEND_URL}/upload`, fd);
       filePath = res.data.path;
       setFile(null);
     }
@@ -149,43 +144,41 @@ useEffect(() => {
     setText("");
   };
 
-  // --- Logout ---
   const logout = () => {
     localStorage.removeItem("chatUser");
     setUser(null);
   };
 
-  // --- Room functions ---
   const createRoom = async () => {
     const name = prompt("Enter room name:");
     if (!name) return;
-    await axios.post("http://localhost:5000/createRoom", { name, creator: user.email });
+    // UPDATED URL
+    await axios.post(`${BACKEND_URL}/createRoom`, { name, creator: user.email });
     loadRooms();
   };
 
-  // Request to join room
-const requestJoin = async (r) => {
-  await axios.post("http://localhost:5000/requestJoinRoom", { roomName: r.name, email: user.email });
-  // Reload rooms so creator sees pending requests
-  loadRooms();
-  alert("Request sent to the room creator");
-};
-
+  const requestJoin = async (r) => {
+    // UPDATED URL
+    await axios.post(`${BACKEND_URL}/requestJoinRoom`, { roomName: r.name, email: user.email });
+    loadRooms();
+    alert("Request sent to the room creator");
+  };
 
   const approveJoin = async (roomName, email) => {
-    await axios.post("http://localhost:5000/approveJoin", { roomName, email });
+    // UPDATED URL
+    await axios.post(`${BACKEND_URL}/approveJoin`, { roomName, email });
     loadRooms();
   };
 
   const deleteRoom = async (roomName) => {
     if (window.confirm("Delete room?")) {
-      await axios.delete(`http://localhost:5000/deleteRoom/${roomName}`);
+      // UPDATED URL
+      await axios.delete(`${BACKEND_URL}/deleteRoom/${roomName}`);
       loadRooms();
       if (currentChat?.id === roomName) setCurrentChat(null);
     }
   };
 
-  // --- Helper to check if user has requested to join ---
   const hasRequested = (room) => room.joinRequests.includes(user.email);
 
   return (
@@ -201,7 +194,8 @@ const requestJoin = async (r) => {
           <h4>Users</h4>
           {users.map(u => (
             <div key={u.email} onClick={() => selectPrivateChat(u)} style={{ padding: "5px", cursor: "pointer", display: "flex", alignItems: "center" }}>
-              {u.avatar && <img src={`http://localhost:5000${u.avatar}`} alt="" style={{ width: "25px", height: "25px", borderRadius: "50%", marginRight: "5px" }} />}
+              {/* UPDATED IMAGE SOURCE */}
+              {u.avatar && <img src={`${BACKEND_URL}${u.avatar}`} alt="" style={{ width: "25px", height: "25px", borderRadius: "50%", marginRight: "5px" }} />}
               {u.name}
             </div>
           ))}
@@ -221,25 +215,20 @@ const requestJoin = async (r) => {
                 Creator: {r.creator} <br />
                 Members: {r.members.join(", ")}
               </div>
-
-              {/* Join request button */}
               {!r.members.includes(user.email) && !hasRequested(r) && (
                 <button style={{ marginTop: "5px" }} onClick={() => requestJoin(r)}>Request Join</button>
               )}
-
-              {/* Pending requests for creator */}
               {r.creator === user.email && r.joinRequests.length > 0 && (
-  <div style={{ marginTop: "5px" }}>
-    Pending Requests:
-    {r.joinRequests.map(req => (
-      <div key={req} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span>{req}</span>
-        <button onClick={() => approveJoin(r.name, req)}>Approve</button>
-      </div>
-    ))}
-  </div>
-)}
-
+                <div style={{ marginTop: "5px" }}>
+                  Pending Requests:
+                  {r.joinRequests.map(req => (
+                    <div key={req} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span>{req}</span>
+                      <button onClick={() => approveJoin(r.name, req)}>Approve</button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -251,31 +240,30 @@ const requestJoin = async (r) => {
           {currentChat ? currentChat.name : "Select a user or room to chat"}
         </div>
         <div style={{ flex: 1, padding: "10px", overflowY: "auto" }}>
-  {messages.map((m, i) => {
-    const isMe = m.senderEmail === user.email;
-    const justify = isMe ? "flex-end" : "flex-start";
+          {messages.map((m, i) => {
+            const isMe = m.senderEmail === user.email;
+            const justify = isMe ? "flex-end" : "flex-start";
 
-    return (
-      <div key={i} style={{ display: "flex", justifyContent: justify, marginBottom: "5px" }}>
-        <div style={{
-          maxWidth: "70%",
-          background: isMe ? "#dcf8c6" : "#f0f0f0",
-          padding: "8px",
-          borderRadius: "5px"
-        }}>
-          {/* Only show sender name if room chat and not me */}
-          {currentChat?.type === "room" && !isMe && (
-            <div style={{ fontWeight: "bold", marginBottom: "3px" }}>{m.senderName}</div>
-          )}
-          {/* Message content */}
-          {m.text && <div>{m.text}</div>}
-          {m.file && <a href={`http://localhost:5000${m.file}`} target="_blank" rel="noreferrer">File</a>}
+            return (
+              <div key={i} style={{ display: "flex", justifyContent: justify, marginBottom: "5px" }}>
+                <div style={{
+                  maxWidth: "70%",
+                  background: isMe ? "#dcf8c6" : "#f0f0f0",
+                  padding: "8px",
+                  borderRadius: "5px"
+                }}>
+                  {currentChat?.type === "room" && !isMe && (
+                    <div style={{ fontWeight: "bold", marginBottom: "3px" }}>{m.senderName}</div>
+                  )}
+                  {m.text && <div>{m.text}</div>}
+                  {/* UPDATED FILE LINK SOURCE */}
+                  {m.file && <a href={`${BACKEND_URL}${m.file}`} target="_blank" rel="noreferrer">File</a>}
+                </div>
+              </div>
+            );
+          })}
+          <div ref={messagesEndRef}></div>
         </div>
-      </div>
-    );
-  })}
-  <div ref={messagesEndRef}></div>
-</div>
 
         <div style={{ display: "flex", padding: "10px", borderTop: "1px solid #ccc" }}>
           <input type="text" placeholder="Message" value={text} onChange={e => setText(e.target.value)} style={{ flex: 1, padding: "8px" }} />
