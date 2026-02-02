@@ -1,0 +1,12 @@
+.auth-box {
+  width: 350px;
+  margin: 100px auto;
+  padding: 30px;
+  background: #f4f6f8;
+  border-radius: 10px;
+}
+.auth-box input, button {
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px;
+}
