@@ -5,7 +5,7 @@ import axios from "axios";
 
 // 1. Dynamic URL Setup
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
-const socket = io(BACKEND_URL);
+//const socket = io(BACKEND_URL);
 
 function Chat({ user, setUser }) {
   const [users, setUsers] = useState([]);
