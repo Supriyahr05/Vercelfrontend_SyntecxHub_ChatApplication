@@ -14,20 +14,22 @@ function Register() {
   const [avatar, setAvatar] = useState(null);
   const [msg, setMsg] = useState("");
 
-  const handleRegister = async (e) => {
+ const handleRegister = async (e) => {
     e.preventDefault();
     try {
-      const formData = new FormData();
-      formData.append("name", name);
-      formData.append("email", email);
-      formData.append("password", password);
-      if (avatar) formData.append("avatar", avatar);
+      // FIX: Send a plain JSON object instead of FormData
+      const userData = {
+        name: name,
+        email: email,
+        password: password
+      };
 
-      // Logic unchanged: now using the dynamic BACKEND_URL variable
-      await axios.post(`${BACKEND_URL}/register`, formData);
+      await axios.post(`${BACKEND_URL}/register`, userData);
       navigate("/login");
     } catch (err) {
-      setMsg(err.response?.data?.msg || "Register failed");
+      // Detailed error logging
+      console.error("Register Error:", err.response?.data);
+      setMsg(err.response?.data?.details || err.response?.data?.msg || "Register failed");
     }
   };
 

@@ -5,7 +5,13 @@ import axios from "axios";
 
 // 1. Dynamic URL Setup
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
-//const socket = io(BACKEND_URL);
+
+// 2. Define a "fake" socket so the code below doesn't crash on Vercel
+const socket = {
+  on: () => {},
+  off: () => {},
+  emit: () => {},
+};
 
 function Chat({ user, setUser }) {
   const [users, setUsers] = useState([]);
