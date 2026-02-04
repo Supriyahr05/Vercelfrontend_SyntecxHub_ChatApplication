@@ -144,16 +144,30 @@ function Chat({ user, setUser }) {
   };
 
   const requestJoin = async (r) => {
-    await axios.post(`${BACKEND_URL}/requestJoinRoom`, { roomName: r.name, email: user.email });
-    loadRooms();
-    alert("Request sent to the room creator");
-  };
+  try {
+    await axios.post(`${BACKEND_URL}/requestJoinRoom`, { 
+      roomName: r.name, 
+      email: user.email 
+    });
+    
+    // IMPORTANT: Refresh the room list so the button changes state 
+    // or shows "Pending"
+    await loadRooms(); 
+    alert("Request sent to the room creator!");
+  } catch (err) {
+    alert("Failed to send request.");
+  }
+};
 
-  const approveJoin = async (roomName, email) => {
+const approveJoin = async (roomName, email) => {
+  try {
     await axios.post(`${BACKEND_URL}/approveJoin`, { roomName, email });
-    loadRooms();
-  };
-
+    // Refresh list so the user disappears from "Pending" and joins "Members"
+    await loadRooms(); 
+  } catch (err) {
+    alert("Failed to approve user.");
+  }
+};
   const deleteRoom = async (roomName) => {
     if (window.confirm("Delete room?")) {
       await axios.delete(`${BACKEND_URL}/deleteRoom/${roomName}`);
