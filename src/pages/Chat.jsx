@@ -1,113 +1,88 @@
-// src/Chat.jsx
 import { useEffect, useState, useRef } from "react";
-import io from "socket.io-client";
 import axios from "axios";
 
 // 1. Dynamic URL Setup
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
 
-// 2. Define a "fake" socket so the code below doesn't crash on Vercel
-const socket = {
-  on: () => {},
-  off: () => {},
-  emit: () => {},
-};
-
 function Chat({ user, setUser }) {
   const [users, setUsers] = useState([]);
   const [rooms, setRooms] = useState([]);
-  const [currentChat, setCurrentChat] = useState(null); 
+  const [currentChat, setCurrentChat] = useState(null);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
   const [file, setFile] = useState(null);
   const messagesEndRef = useRef(null);
 
-  // Load users and rooms
+  // Load users and rooms once on mount
   useEffect(() => {
     loadUsers();
     loadRooms();
+    
+    // Optional: Refresh the user/room list every 10 seconds to see new signups
+    const listInterval = setInterval(() => {
+      loadUsers();
+      loadRooms();
+    }, 10000);
+    
+    return () => clearInterval(listInterval);
   }, []);
 
   const loadUsers = async () => {
-    // UPDATED URL
-    const res = await axios.get(`${BACKEND_URL}/users`);
-    setUsers(res.data.filter(u => u.email !== user.email));
+    try {
+      const res = await axios.get(`${BACKEND_URL}/users`);
+      setUsers(res.data.filter(u => u.email !== user.email));
+    } catch (err) {
+      console.error("Error loading users:", err);
+    }
   };
 
   const loadRooms = async () => {
-    // UPDATED URL
-    const res = await axios.get(`${BACKEND_URL}/rooms`);
-    setRooms(res.data);
+    try {
+      const res = await axios.get(`${BACKEND_URL}/rooms`);
+      setRooms(res.data);
+    } catch (err) {
+      console.error("Error loading rooms:", err);
+    }
   };
 
-  // Scroll to bottom
+  // --- NEW: POLLING LOGIC ---
+  // This replaces the Socket listeners. It asks the server for new messages every 3 seconds.
+  useEffect(() => {
+    if (!currentChat || !user?.email) return;
+
+    const fetchMessages = async () => {
+      try {
+        const res = await axios.get(
+          `${BACKEND_URL}/messages/${currentChat.type}/${currentChat.id}?me=${user.email}`
+        );
+        
+        // Only update state if the number of messages has actually changed
+        // This prevents the screen from flickering/re-rendering constantly
+        setMessages((prev) => {
+            if (JSON.stringify(prev) !== JSON.stringify(res.data)) {
+                return res.data;
+            }
+            return prev;
+        });
+      } catch (err) {
+        console.error("Polling error:", err);
+      }
+    };
+
+    fetchMessages(); // Run once immediately when a chat is selected
+    const interval = setInterval(fetchMessages, 3000); // Repeat every 3 seconds
+
+    return () => clearInterval(interval); // Stop polling when user switches chat or logs out
+  }, [currentChat, user.email]);
+
+  // Scroll to bottom when messages update
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Socket listeners
-  useEffect(() => {
-    if (!user || !user.email) return;
-
-    socket.on("oldPrivateMessages", msgs => setMessages(msgs));
-    socket.on("oldRoomMessages", msgs => setMessages(msgs));
-
-    socket.on("privateMessage", msg => {
-      if (currentChat?.type === "private" && (msg.senderEmail === currentChat.id || msg.receiver === currentChat.id)) {
-        setMessages(prev => [...prev, msg]);
-      }
-    });
-
-    socket.on("roomMessage", msg => {
-      if (currentChat?.type === "room" && msg.receiver === currentChat.id) {
-        setMessages(prev => [...prev, msg]);
-      }
-    });
-
-    socket.on("newUserRegistered", (newUser) => {
-      if (user && newUser.email !== user.email) {
-        setUsers((prev) => {
-          const exists = prev.find(u => u.email === newUser.email);
-          return exists ? prev : [...prev, newUser];
-        });
-      }
-    });
-
-    socket.on("newRoomCreated", (newRoom) => {
-      setRooms((prev) => {
-        const exists = prev.find(r => r.name === newRoom.name);
-        return exists ? prev : [...prev, newRoom];
-      });
-    });
-
-    socket.on("requestUpdate", () => {
-      loadRooms(); 
-    });
-
-    socket.on("roomUpdated", ({ roomName, members }) => {
-      setRooms(prevRooms => 
-        prevRooms.map(r => 
-          r.name === roomName ? { ...r, members, joinRequests: r.joinRequests?.filter(req => !members.includes(req)) || [] } : r
-        )
-      );
-    });
-
-    return () => {
-      socket.off("oldPrivateMessages");
-      socket.off("oldRoomMessages");
-      socket.off("privateMessage");
-      socket.off("roomMessage");
-      socket.off("newUserRegistered");
-      socket.off("newRoomCreated");
-      socket.off("requestUpdate");
-      socket.off("roomUpdated");
-    };
-  }, [currentChat, user]);
-
   const selectPrivateChat = (u) => {
     setCurrentChat({ type: "private", id: u.email, name: u.name });
-    setMessages([]);
-    socket.emit("joinPrivate", { me: user.email, other: u.email });
+    setMessages([]); // Clear chat screen while loading new messages
   };
 
   const selectRoomChat = (r) => {
@@ -117,7 +92,6 @@ function Chat({ user, setUser }) {
     }
     setCurrentChat({ type: "room", id: r.name, name: r.name });
     setMessages([]);
-    socket.emit("joinRoom", { room: r.name, email: user.email });
   };
 
   const sendMessage = async () => {
@@ -127,27 +101,30 @@ function Chat({ user, setUser }) {
     if (file) {
       const fd = new FormData();
       fd.append("file", file);
-      // UPDATED URL
       const res = await axios.post(`${BACKEND_URL}/upload`, fd);
       filePath = res.data.path;
       setFile(null);
     }
 
-    const msg = {
+    const msgData = {
       senderEmail: user.email,
       senderName: user.name,
       receiver: currentChat.id,
       text,
       file: filePath,
+      isRoom: currentChat.type === "room"
     };
 
-    if (currentChat.type === "private") {
-      socket.emit("privateMessage", msg);
-    } else {
-      msg.room = currentChat.id;
-      socket.emit("roomMessage", msg);
+    try {
+      // Send message to database via API
+      await axios.post(`${BACKEND_URL}/messages`, msgData);
+      
+      // Optimistic UI update: show the message immediately so it doesn't "disappear"
+      setMessages(prev => [...prev, { ...msgData, time: new Date() }]);
+      setText("");
+    } catch (err) {
+      alert("Failed to send message. Please try again.");
     }
-    setText("");
   };
 
   const logout = () => {
@@ -158,27 +135,27 @@ function Chat({ user, setUser }) {
   const createRoom = async () => {
     const name = prompt("Enter room name:");
     if (!name) return;
-    // UPDATED URL
-    await axios.post(`${BACKEND_URL}/createRoom`, { name, creator: user.email });
-    loadRooms();
+    try {
+        await axios.post(`${BACKEND_URL}/createRoom`, { name, creator: user.email });
+        loadRooms(); // Refresh the room list immediately
+    } catch (err) {
+        alert("Error creating room.");
+    }
   };
 
   const requestJoin = async (r) => {
-    // UPDATED URL
     await axios.post(`${BACKEND_URL}/requestJoinRoom`, { roomName: r.name, email: user.email });
     loadRooms();
     alert("Request sent to the room creator");
   };
 
   const approveJoin = async (roomName, email) => {
-    // UPDATED URL
     await axios.post(`${BACKEND_URL}/approveJoin`, { roomName, email });
     loadRooms();
   };
 
   const deleteRoom = async (roomName) => {
     if (window.confirm("Delete room?")) {
-      // UPDATED URL
       await axios.delete(`${BACKEND_URL}/deleteRoom/${roomName}`);
       loadRooms();
       if (currentChat?.id === roomName) setCurrentChat(null);
@@ -199,8 +176,7 @@ function Chat({ user, setUser }) {
         <div>
           <h4>Users</h4>
           {users.map(u => (
-            <div key={u.email} onClick={() => selectPrivateChat(u)} style={{ padding: "5px", cursor: "pointer", display: "flex", alignItems: "center" }}>
-              {/* UPDATED IMAGE SOURCE */}
+            <div key={u.email} onClick={() => selectPrivateChat(u)} style={{ padding: "5px", cursor: "pointer", display: "flex", alignItems: "center", background: currentChat?.id === u.email ? "#e6effb" : "transparent" }}>
               {u.avatar && <img src={`${BACKEND_URL}${u.avatar}`} alt="" style={{ width: "25px", height: "25px", borderRadius: "50%", marginRight: "5px" }} />}
               {u.name}
             </div>
@@ -212,25 +188,24 @@ function Chat({ user, setUser }) {
             Rooms <button onClick={createRoom}>+</button>
           </h4>
           {rooms.map(r => (
-            <div key={r.name} style={{ padding: "5px", borderBottom: "1px solid #ccc" }}>
+            <div key={r.name} style={{ padding: "5px", borderBottom: "1px solid #ccc", background: currentChat?.id === r.name ? "#e6effb" : "transparent" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ cursor: "pointer", fontWeight: currentChat?.id === r.name ? "bold" : "normal" }} onClick={() => selectRoomChat(r)}>{r.name}</span>
-                {r.creator === user.email && <button onClick={() => deleteRoom(r.name)} style={{ color: "red" }}>Delete</button>}
+                {r.creator === user.email && <button onClick={() => deleteRoom(r.name)} style={{ color: "red", border: "none", background: "none", cursor: "pointer" }}>🗑️</button>}
               </div>
-              <div style={{ fontSize: "12px" }}>
-                Creator: {r.creator} <br />
-                Members: {r.members.join(", ")}
+              <div style={{ fontSize: "10px", color: "#666" }}>
+                Members: {r.members.length}
               </div>
               {!r.members.includes(user.email) && !hasRequested(r) && (
-                <button style={{ marginTop: "5px" }} onClick={() => requestJoin(r)}>Request Join</button>
+                <button style={{ marginTop: "5px", fontSize: "11px" }} onClick={() => requestJoin(r)}>Request Join</button>
               )}
               {r.creator === user.email && r.joinRequests.length > 0 && (
-                <div style={{ marginTop: "5px" }}>
-                  Pending Requests:
+                <div style={{ marginTop: "5px", fontSize: "11px", background: "#fff", padding: "5px" }}>
+                  Pending:
                   {r.joinRequests.map(req => (
-                    <div key={req} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span>{req}</span>
-                      <button onClick={() => approveJoin(r.name, req)}>Approve</button>
+                    <div key={req} style={{ display: "flex", justifyContent: "space-between", marginTop: "2px" }}>
+                      <span>{req.split('@')[0]}</span>
+                      <button onClick={() => approveJoin(r.name, req)}>Add</button>
                     </div>
                   ))}
                 </div>
@@ -242,28 +217,33 @@ function Chat({ user, setUser }) {
 
       {/* Chat area */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "#fff" }}>
-        <div style={{ padding: "10px", borderBottom: "1px solid #ccc", fontWeight: "bold" }}>
-          {currentChat ? currentChat.name : "Select a user or room to chat"}
+        <div style={{ padding: "15px", borderBottom: "1px solid #ccc", fontWeight: "bold", background: "#f0f2f5" }}>
+          {currentChat ? `Chatting with: ${currentChat.name}` : "Select a user or room to start chatting"}
         </div>
-        <div style={{ flex: 1, padding: "10px", overflowY: "auto" }}>
+        
+        <div style={{ flex: 1, padding: "10px", overflowY: "auto", display: "flex", flexDirection: "column" }}>
           {messages.map((m, i) => {
             const isMe = m.senderEmail === user.email;
-            const justify = isMe ? "flex-end" : "flex-start";
-
             return (
-              <div key={i} style={{ display: "flex", justifyContent: justify, marginBottom: "5px" }}>
+              <div key={i} style={{ alignSelf: isMe ? "flex-end" : "flex-start", marginBottom: "10px", maxWidth: "70%" }}>
                 <div style={{
-                  maxWidth: "70%",
                   background: isMe ? "#dcf8c6" : "#f0f0f0",
-                  padding: "8px",
-                  borderRadius: "5px"
+                  padding: "8px 12px",
+                  borderRadius: "10px",
+                  boxShadow: "0 1px 1px rgba(0,0,0,0.1)"
                 }}>
                   {currentChat?.type === "room" && !isMe && (
-                    <div style={{ fontWeight: "bold", marginBottom: "3px" }}>{m.senderName}</div>
+                    <div style={{ fontWeight: "bold", fontSize: "11px", color: "#075e54", marginBottom: "3px" }}>{m.senderName}</div>
                   )}
-                  {m.text && <div>{m.text}</div>}
-                  {/* UPDATED FILE LINK SOURCE */}
-                  {m.file && <a href={`${BACKEND_URL}${m.file}`} target="_blank" rel="noreferrer">File</a>}
+                  {m.text && <div style={{ wordBreak: "break-word" }}>{m.text}</div>}
+                  {m.file && (
+                    <div style={{ marginTop: "5px" }}>
+                        <a href={`${BACKEND_URL}${m.file}`} target="_blank" rel="noreferrer" style={{ fontSize: "12px", color: "#34b7f1" }}>📎 View File</a>
+                    </div>
+                  )}
+                </div>
+                <div style={{ fontSize: "9px", color: "#999", textAlign: isMe ? "right" : "left", marginTop: "2px" }}>
+                    {new Date(m.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </div>
               </div>
             );
@@ -271,11 +251,25 @@ function Chat({ user, setUser }) {
           <div ref={messagesEndRef}></div>
         </div>
 
-        <div style={{ display: "flex", padding: "10px", borderTop: "1px solid #ccc" }}>
-          <input type="text" placeholder="Message" value={text} onChange={e => setText(e.target.value)} style={{ flex: 1, padding: "8px" }} />
-          <input type="file" onChange={e => setFile(e.target.files[0])} style={{ marginLeft: "5px" }} />
-          <button onClick={sendMessage} style={{ marginLeft: "5px", padding: "8px 12px" }}>Send</button>
-        </div>
+        {currentChat && (
+            <div style={{ display: "flex", padding: "15px", borderTop: "1px solid #ccc", background: "#f0f2f5" }}>
+              <input 
+                type="text" 
+                placeholder="Type a message..." 
+                value={text} 
+                onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+                onChange={e => setText(e.target.value)} 
+                style={{ flex: 1, padding: "10px", borderRadius: "20px", border: "1px solid #ccc" }} 
+              />
+              <label style={{ cursor: "pointer", padding: "10px" }}>
+                📁
+                <input type="file" onChange={e => setFile(e.target.files[0])} style={{ display: "none" }} />
+              </label>
+              <button onClick={sendMessage} style={{ marginLeft: "5px", padding: "10px 20px", borderRadius: "20px", border: "none", background: "#075e54", color: "white", cursor: "pointer" }}>
+                Send
+              </button>
+            </div>
+        )}
       </div>
     </div>
   );
