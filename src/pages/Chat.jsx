@@ -202,30 +202,67 @@ const approveJoin = async (roomName, email) => {
             Rooms <button onClick={createRoom}>+</button>
           </h4>
           {rooms.map(r => (
-            <div key={r.name} style={{ padding: "5px", borderBottom: "1px solid #ccc", background: currentChat?.id === r.name ? "#e6effb" : "transparent" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ cursor: "pointer", fontWeight: currentChat?.id === r.name ? "bold" : "normal" }} onClick={() => selectRoomChat(r)}>{r.name}</span>
-                {r.creator === user.email && <button onClick={() => deleteRoom(r.name)} style={{ color: "red", border: "none", background: "none", cursor: "pointer" }}>🗑️</button>}
-              </div>
-              <div style={{ fontSize: "10px", color: "#666" }}>
-                Members: {r.members.length}
-              </div>
-              {!r.members.includes(user.email) && !hasRequested(r) && (
-                <button style={{ marginTop: "5px", fontSize: "11px" }} onClick={() => requestJoin(r)}>Request Join</button>
-              )}
-              {r.creator === user.email && r.joinRequests.length > 0 && (
-                <div style={{ marginTop: "5px", fontSize: "11px", background: "#fff", padding: "5px" }}>
-                  Pending:
-                  {r.joinRequests.map(req => (
-                    <div key={req} style={{ display: "flex", justifyContent: "space-between", marginTop: "2px" }}>
-                      <span>{req.split('@')[0]}</span>
-                      <button onClick={() => approveJoin(r.name, req)}>Add</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
+  <div key={r.name} style={{ padding: "10px", borderBottom: "1px solid #ddd", background: currentChat?.id === r.name ? "#e6effb" : "transparent" }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <span 
+        style={{ cursor: "pointer", fontWeight: "bold", color: "#075e54" }} 
+        onClick={() => selectRoomChat(r)}
+      >
+        # {r.name}
+      </span>
+      {r.creator === user.email && (
+        <button onClick={() => deleteRoom(r.name)} style={{ border: "none", background: "none", cursor: "pointer", fontSize: "12px" }}>🗑️</button>
+      )}
+    </div>
+
+    {/* 👑 Show Room Creator */}
+    <div style={{ fontSize: "11px", color: "#555", marginTop: "5px" }}>
+      <strong>Created by:</strong> {r.creator === user.email ? "You" : r.creator.split('@')[0]}
+    </div>
+
+    {/* 👥 List of Members */}
+    <div style={{ fontSize: "11px", color: "#555", marginTop: "5px" }}>
+      <strong>Members:</strong>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "3px", marginTop: "3px" }}>
+        {r.members.map((mEmail) => (
+          <span 
+            key={mEmail} 
+            style={{ 
+              background: "#dcf8c6", 
+              padding: "2px 6px", 
+              borderRadius: "8px", 
+              fontSize: "10px",
+              border: "1px solid #c5e1a5"
+            }}
+          >
+            {mEmail === user.email ? "Me" : mEmail.split('@')[0]}
+          </span>
+        ))}
+      </div>
+    </div>
+
+    {/* Request Join Logic (Keep this) */}
+    {!r.members.includes(user.email) && !hasRequested(r) && (
+      <button style={{ marginTop: "8px", width: "100%", fontSize: "11px", padding: "4px" }} onClick={() => requestJoin(r)}>Request to Join</button>
+    )}
+    {hasRequested(r) && !r.members.includes(user.email) && (
+      <div style={{ marginTop: "8px", fontSize: "11px", color: "orange", fontStyle: "italic" }}>Pending Approval...</div>
+    )}
+
+    {/* Approval section for Creator (Keep this) */}
+    {r.creator === user.email && r.joinRequests.length > 0 && (
+      <div style={{ marginTop: "10px", padding: "5px", background: "#fff", borderRadius: "5px", border: "1px dashed #ccc" }}>
+        <div style={{ fontSize: "10px", fontWeight: "bold", marginBottom: "5px" }}>New Requests:</div>
+        {r.joinRequests.map(req => (
+          <div key={req} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "3px" }}>
+            <span style={{ fontSize: "10px" }}>{req.split('@')[0]}</span>
+            <button style={{ fontSize: "9px", padding: "2px 5px" }} onClick={() => approveJoin(r.name, req)}>Approve</button>
+          </div>
+        ))}
+      </div>
+    )}
+  </div>
+))}
         </div>
       </div>
 
